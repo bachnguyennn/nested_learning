@@ -1590,11 +1590,15 @@ def _seed_everything(seed: int, *, deterministic: bool = False) -> None:
             torch.backends.cudnn.deterministic = False  # type: ignore[attr-defined]
 
 
-def _make_worker_init_fn(base_seed: int):
-    def _init_fn(worker_id: int) -> None:
-        worker_seed = base_seed + worker_id
+class _WorkerInit:
+    def __init__(self, base_seed: int):
+        self.base_seed = base_seed
+
+    def __call__(self, worker_id: int) -> None:
+        worker_seed = self.base_seed + worker_id
         np.random.seed(worker_seed)
         random.seed(worker_seed)
         torch.manual_seed(worker_seed)
 
-    return _init_fn
+def _make_worker_init_fn(base_seed: int):
+    return _WorkerInit(base_seed)

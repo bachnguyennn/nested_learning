@@ -75,9 +75,6 @@ data:
       - name: c4
         shards_dir: data/shards/c4_filtered
         weight: 0.15
-      - name: redpajama
-        shards_dir: data/shards/redpajama_filtered
-        weight: 0.15
       - name: code
         shards_dir: data/shards/code_filtered
         weight: 0.1

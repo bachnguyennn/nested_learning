@@ -67,20 +67,6 @@ if [[ ! -f "data/filtered/c4_en_sample.txt" ]]; then
     --output-path data/filtered/c4_en_sample.txt --force-exit
 fi
 
-if [[ ! -f "data/filtered/redpajama_en_sample.txt" ]]; then
-  echo "[Data] Creating filtered SlimPajama sample"
-  uv run python scripts/data/filter_corpus.py \
-    "--dataset=cerebras/SlimPajama-627B" \
-    --split train \
-    --text-column text \
-    --target-lang en \
-    --lang-threshold 0.85 \
-    --min-chars 200 \
-    --max-chars 8000 \
-    --limit 1000 \
-    --output-path data/filtered/redpajama_en_sample.txt \
-    --force-exit
-fi
 
 if [[ ! -f "data/filtered/code_en_sample.txt" ]]; then
   echo "[Data] Creating filtered code sample"

@@ -28,15 +28,6 @@ datasets:
     sequences_per_shard: 512
     output_dir: data/shards/c4_filtered
     max_records: null
-  - name: redpajama
-    dataset: text
-    split: train
-    text_column: text
-    data_files: data/filtered/redpajama_en_sample.txt
-    seq_len: 512
-    sequences_per_shard: 512
-    output_dir: data/shards/redpajama_filtered
-    max_records: null
   - name: code
     dataset: text
     split: train
