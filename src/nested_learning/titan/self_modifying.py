@@ -418,9 +418,9 @@ class SelfModifyingTitans(nn.Module):
         v_fla = v_seq.view(B, T, H, HeadDim).contiguous()
         beta_fla = beta.view(B, T, H).contiguous()
         
-        # 3. Pull Initial State from PyTorch Object 
-        # (w2 matrix naturally represents the preconditioned Delta tracking state)
-        initial_state = state.memory.w2.view(B, H, HeadDim, HeadDim).contiguous().clone()
+        # 3. Pull Initial State from PyTorch Object
+        # Cast to match FLA's half-precision requirement (fp32 params -> bf16/fp16 kernel input)
+        initial_state = state.memory.w2.view(B, H, HeadDim, HeadDim).to(dtype=q_fla.dtype).contiguous().clone()
         
         # 4. Hardware Execute (Custom Autograd is natively handled by the library)
         from fla.ops.delta_rule import chunk_delta_rule
