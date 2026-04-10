@@ -18,9 +18,12 @@ model:
   surprise_threshold: null
   freeze_backbone: false
   self_mod_lr: 0.001
-  block_variant: hope_selfmod
-  self_mod_use_fla: true
-  selfmod_use_fla: true
+  block_variant: hope_hybrid   # <-- original HOPE block
+  self_mod_use_fla: false
+  titan_level:
+    name: titan
+    update_period: 8
+    optimizer_key: titan_opt
   cms_levels:
     - name: cms_fast
       update_period: 1
@@ -28,10 +31,6 @@ model:
     - name: cms_slow
       update_period: 8
       optimizer_key: cms_opt
-  titan_level:
-    name: titan
-    update_period: 8
-    optimizer_key: titan_opt
   optimizers:
     titan_opt:
       type: deep_momentum
@@ -91,6 +90,6 @@ optim:
 logging:
   enabled: true
   backend: json
-  path: /kaggle/working/logs/fla_model.json
+  path: /kaggle/working/logs/baseline_hope.json
   project: nested-learning
-  run_name: fla-selfmod
+  run_name: baseline-hope
