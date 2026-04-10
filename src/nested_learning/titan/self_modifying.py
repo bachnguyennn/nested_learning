@@ -9,12 +9,7 @@ import torch.nn.functional as F
 from torch import nn
 from torch.func import grad, vmap
 
-try:
-    from fla.ops.delta_rule import chunk_delta_rule
-    HAS_FLA = True
-except ImportError:
-    HAS_FLA = False
-    chunk_delta_rule = None
+
 
 
 @dataclass(frozen=True)
@@ -271,7 +266,8 @@ class SelfModifyingTitans(nn.Module):
 
         # --- FLA FAST PATH ---
         if self.config.use_fla:
-            if not HAS_FLA:
+            import importlib.util
+            if importlib.util.find_spec("fla") is None:
                 logging.warning(
                     "FLA is requested but not installed. Falling back to native PyTorch..."
                 )
@@ -426,6 +422,7 @@ class SelfModifyingTitans(nn.Module):
         initial_state = state.memory.w2.view(B, H, HeadDim, HeadDim).contiguous().clone()
         
         # 4. Hardware Execute (Custom Autograd is natively handled by the library)
+        from fla.ops.delta_rule import chunk_delta_rule
         out, final_state = chunk_delta_rule(
             q_fla, k_fla, v_fla, beta_fla, 
             initial_state=initial_state, 
