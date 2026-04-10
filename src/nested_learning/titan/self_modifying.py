@@ -777,13 +777,16 @@ class SelfModifyingTitans(nn.Module):
         else:
             x_seq = x
             squeeze = False
-        w2_t = w2.transpose(-1, -2)
+        # Cast fast weights to match x_seq's dtype (handles fp32↔fp16/bf16 mismatches
+        # that arise when FLA is called from apply_updates_inplace outside autocast).
+        target_dtype = x_seq.dtype
+        w2_t = w2.to(target_dtype).transpose(-1, -2)
         hidden = torch.matmul(x_seq, w2_t)
         hidden = F.gelu(hidden)
-        w1_t = w1.transpose(-1, -2)
+        w1_t = w1.to(target_dtype).transpose(-1, -2)
         out = torch.matmul(hidden, w1_t)
         if w_skip is not None:
-            w_skip_t = w_skip.transpose(-1, -2)
+            w_skip_t = w_skip.to(target_dtype).transpose(-1, -2)
             out = out + torch.matmul(x_seq, w_skip_t)
         elif out.size(-1) == x_seq.size(-1):
             out = out + x_seq
