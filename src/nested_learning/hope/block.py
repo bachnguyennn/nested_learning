@@ -734,6 +734,7 @@ class HOPESelfModBlockConfig:
     selfmod_use_rank1_precond: bool = True
     selfmod_use_alpha: bool = True
     selfmod_use_skip: bool = True
+    selfmod_use_fla: bool = False
     selfmod_momentum: float = 0.0
     selfmod_online_updates: bool = True
     self_mod_lr: float = 1e-3
@@ -771,6 +772,7 @@ class HOPESelfModBlock(nn.Module):
                 qk_l2_norm=config.qk_l2_norm,
                 adaptive_q=config.selfmod_adaptive_q,
                 local_conv_window=config.selfmod_local_conv_window,
+                use_fla=config.selfmod_use_fla,
             )
         )
         self.cms = CMS(
