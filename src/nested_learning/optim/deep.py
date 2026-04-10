@@ -65,9 +65,10 @@ class DeepMomentum(nn.Module):
             if grad.ndim == 0 or grad.shape[-1] != ctx.shape[-1]:
                 metrics["proj_skipped"] = 1.0
                 return grad, metrics
-            unit = ctx / (ctx_norm + self.eps)
-            # Project grad orthogonal to context (rank-1 projector).
-            projection = (grad * unit).sum(dim=-1, keepdim=True) * unit
+            # Use exact Woodbury matrix identity for L2 preconditioner (I + c c^T)^{-1}
+            # H^{-1} g = g - (c c^T / (1 + ||c||^2)) g
+            ctx_dot_grad = (grad * ctx).sum(dim=-1, keepdim=True)
+            projection = ctx * ctx_dot_grad / (1.0 + ctx_norm ** 2)
             update = grad - projection
             metrics["proj_norm"] = torch.norm(update).item()
             return update, metrics

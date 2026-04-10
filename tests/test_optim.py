@@ -50,13 +50,21 @@ def test_deep_momentum_nl_preconditioner_skips_mismatched_shapes() -> None:
     assert optimizer.last_metrics["proj_skipped"] == 1.0
 
 
-def test_deep_momentum_nl_preconditioner_outputs_orthogonal_update() -> None:
+def test_deep_momentum_nl_preconditioner_scales_context_direction() -> None:
     torch.manual_seed(0)
     grad = torch.randn(3, 5)
     context = torch.randn(5)
     optimizer = DeepMomentum(beta=0.0, beta2=0.0, variant="nl_l2_precond")
     update = optimizer(grad, context=context)
+    
+    # A true Sherman-Morrison preconditioner scales the gradient in the context 
+    # direction by 1 / (1 + ||c||^2), rather than projecting it purely to zero.
+    ctx_norm_sq = (context * context).sum()
+    expected_scaling = 1.0 / (1.0 + ctx_norm_sq)
+    
     unit = context / context.norm()
-    # Each row update should be orthogonal to the context direction.
-    proj = (update * unit).sum(dim=-1).abs()
-    assert torch.all(proj < 1e-5)
+    orig_proj = (grad * unit).sum(dim=-1)
+    new_proj = (update * unit).sum(dim=-1)
+    
+    # The new projection magnitude should be exactly the old projection scaled down
+    assert torch.allclose(new_proj, orig_proj * expected_scaling, atol=1e-5)
