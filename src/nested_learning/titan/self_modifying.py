@@ -395,59 +395,54 @@ class SelfModifyingTitans(nn.Module):
         Production-grade FLA integration relying on Triton chunk_delta_rule.
         This bypasses PyTorch subgraph generation, flattening the WY scan.
 
-        FLA Triton kernels require bfloat16 or float16. This method handles
-        both AMP-wrapped (already half-precision) and non-AMP (fp32) call sites
-        by explicitly casting at the kernel boundary and restoring the original
-        dtype on the way out.
+        FLA Triton kernels require bfloat16 or float16. All projections run in
+        x's native dtype (fp32 or half). Only the tensors passed into the C++
+        kernel are cast to fp16 at the boundary; the output is cast back on exit.
         """
         input_dtype = x.dtype
-        # FLA requires half-precision; cast if entering from a fp32 call site
-        # (e.g. apply_updates_inplace which runs outside the autocast context).
-        if input_dtype == torch.float32:
-            fla_dtype = torch.float16
-            x = x.to(fla_dtype)
+        # Determine the target dtype for the FLA kernel boundary cast.
+        # If we are already in a half-precision context (fp16/bf16), use that.
+        # If we are in fp32 (e.g. apply_updates_inplace outside autocast), use fp16.
+        fla_dtype = input_dtype if input_dtype != torch.float32 else torch.float16
+
         B, T, D = x.shape
-        H = 1 # Assuming single head mapping for the Titan core memory initially
+        H = 1  # Single head mapping for the Titan core memory
         HeadDim = D
-        
-        # 1. Project sequence using current architectural fast state
+
+        # 1. Project sequence in native dtype — compatible with fp32 nn.Linear weights
         k_seq = self._memory_forward(x, state.k)
         v_seq = self._memory_forward(x, state.v)
         q_seq = self._memory_forward(x, state.q) if self.config.adaptive_q else self.w_q(x)
-        
+
         if self.config.qk_l2_norm:
             k_seq = F.normalize(k_seq, dim=-1, eps=self.config.eps)
             q_seq = F.normalize(q_seq, dim=-1, eps=self.config.eps)
-            
+
         eta_seq = self._memory_forward(x, state.eta).squeeze(-1)
         beta = F.softplus(eta_seq) * self.config.eta_scale
-        
-        # 2. Reshape & Contiguity (The Memory Pitfall Fix)
-        # Tensors strictly formatted for Triton C++ contiguous layouts
-        q_fla = q_seq.view(B, T, H, HeadDim).contiguous()
-        k_fla = k_seq.view(B, T, H, HeadDim).contiguous()
-        v_fla = v_seq.view(B, T, H, HeadDim).contiguous()
-        beta_fla = beta.view(B, T, H).contiguous()
-        
-        # 3. Pull Initial State from PyTorch Object
-        # Cast to match FLA's half-precision requirement (fp32 params -> bf16/fp16 kernel input)
-        initial_state = state.memory.w2.view(B, H, HeadDim, HeadDim).to(dtype=q_fla.dtype).contiguous().clone()
-        
-        # 4. Hardware Execute (Custom Autograd is natively handled by the library)
+
+        # 2. Cast ONLY the kernel inputs to the required half-precision at the boundary
+        q_fla = q_seq.view(B, T, H, HeadDim).to(fla_dtype).contiguous()
+        k_fla = k_seq.view(B, T, H, HeadDim).to(fla_dtype).contiguous()
+        v_fla = v_seq.view(B, T, H, HeadDim).to(fla_dtype).contiguous()
+        beta_fla = beta.view(B, T, H).to(fla_dtype).contiguous()
+
+        # 3. Pull Initial State and cast to match kernel dtype
+        initial_state = (
+            state.memory.w2.view(B, H, HeadDim, HeadDim).to(fla_dtype).contiguous().clone()
+        )
+
+        # 4. Hardware Execute
         from fla.ops.delta_rule import chunk_delta_rule
         out, final_state = chunk_delta_rule(
-            q_fla, k_fla, v_fla, beta_fla, 
-            initial_state=initial_state, 
-            output_final_state=True
+            q_fla, k_fla, v_fla, beta_fla,
+            initial_state=initial_state,
+            output_final_state=True,
         )
-        
-        # 5. Reverse Projection & Handover (State Mutation)
-        out = out.contiguous().view(B, T, D)
-        state.memory.w2.copy_(final_state.view_as(state.memory.w2))
 
-        # Restore original dtype so downstream modules see a consistent tensor type
-        if out.dtype != input_dtype:
-            out = out.to(input_dtype)
+        # 5. Handover and restore original dtype for downstream compatibility
+        out = out.contiguous().view(B, T, D).to(input_dtype)
+        state.memory.w2.copy_(final_state.view_as(state.memory.w2))
         return out, state
 
     def _apply_local_conv(self, x: torch.Tensor) -> torch.Tensor:
