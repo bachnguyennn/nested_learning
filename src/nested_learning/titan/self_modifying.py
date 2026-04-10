@@ -3,10 +3,19 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
+import logging
+
 import torch
 import torch.nn.functional as F
 from torch import nn
 from torch.func import grad, vmap
+
+try:
+    from fla.ops.delta_rule import chunk_delta_rule
+    HAS_FLA = True
+except ImportError:
+    HAS_FLA = False
+    chunk_delta_rule = None
 
 
 @dataclass(frozen=True)
@@ -25,6 +34,7 @@ class SelfModifyingTitansConfig:
     use_skip: bool = True
     local_conv_window: int | None = 4
     eps: float = 1e-6
+    use_fla: bool = False
 
     def __post_init__(self) -> None:
         if self.dim <= 0:
@@ -260,6 +270,13 @@ class SelfModifyingTitans(nn.Module):
         if other_chunk <= 0 or memory_chunk <= 0:
             raise ValueError("chunk sizes must be positive")
 
+        # --- FLA FAST PATH ---
+        if self.config.use_fla:
+            if not HAS_FLA:
+                logging.warning("FLA is requested but not installed. Falling back to native PyTorch...")
+            else:
+                return self._forward_with_updates_fla(x, state)
+
         outputs: list[torch.Tensor] = []
         other_k: list[torch.Tensor] = []
         other_v: list[torch.Tensor] = []
@@ -372,6 +389,53 @@ class SelfModifyingTitans(nn.Module):
                 )
 
         return torch.cat(outputs, dim=1), state
+
+    def _forward_with_updates_fla(
+        self, x: torch.Tensor, state: SelfModifyingTitansState
+    ) -> tuple[torch.Tensor, SelfModifyingTitansState]:
+        """
+        Production-grade FLA integration relying on Triton chunk_delta_rule.
+        This bypasses PyTorch subgraph generation, flattening the WY scan.
+        """
+        B, T, D = x.shape
+        H = 1 # Assuming single head mapping for the Titan core memory initially
+        HeadDim = D
+        
+        # 1. Project sequence using current architectural fast state
+        k_seq = self._memory_forward(x, state.k)
+        v_seq = self._memory_forward(x, state.v)
+        q_seq = self._memory_forward(x, state.q) if self.config.adaptive_q else self.w_q(x)
+        
+        if self.config.qk_l2_norm:
+            k_seq = F.normalize(k_seq, dim=-1, eps=self.config.eps)
+            q_seq = F.normalize(q_seq, dim=-1, eps=self.config.eps)
+            
+        eta_seq = self._memory_forward(x, state.eta).squeeze(-1)
+        beta = F.softplus(eta_seq) * self.config.eta_scale
+        
+        # 2. Reshape & Contiguity (The Memory Pitfall Fix)
+        # Tensors strictly formatted for Triton C++ contiguous layouts
+        q_fla = q_seq.view(B, T, H, HeadDim).transpose(1, 2).contiguous()
+        k_fla = k_seq.view(B, T, H, HeadDim).transpose(1, 2).contiguous()
+        v_fla = v_seq.view(B, T, H, HeadDim).transpose(1, 2).contiguous()
+        beta_fla = beta.view(B, T, H).transpose(1, 2).contiguous()
+        
+        # 3. Pull Initial State from PyTorch Object 
+        # (w2 matrix naturally represents the preconditioned Delta tracking state)
+        initial_state = state.memory.w2.view(B, H, HeadDim, HeadDim).contiguous().clone()
+        
+        # 4. Hardware Execute (Custom Autograd is natively handled by the library)
+        out, final_state = chunk_delta_rule(
+            q_fla, k_fla, v_fla, beta_fla, 
+            initial_state=initial_state, 
+            output_final_state=True
+        )
+        
+        # 5. Reverse Projection & Handover (State Mutation)
+        out = out.transpose(1, 2).contiguous().view(B, T, D)
+        state.memory.w2.copy_(final_state.view_as(state.memory.w2))
+        
+        return out, state
 
     def _apply_local_conv(self, x: torch.Tensor) -> torch.Tensor:
         if self.local_conv is None:
