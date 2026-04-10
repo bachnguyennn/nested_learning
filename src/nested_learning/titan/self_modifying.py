@@ -394,7 +394,18 @@ class SelfModifyingTitans(nn.Module):
         """
         Production-grade FLA integration relying on Triton chunk_delta_rule.
         This bypasses PyTorch subgraph generation, flattening the WY scan.
+
+        FLA Triton kernels require bfloat16 or float16. This method handles
+        both AMP-wrapped (already half-precision) and non-AMP (fp32) call sites
+        by explicitly casting at the kernel boundary and restoring the original
+        dtype on the way out.
         """
+        input_dtype = x.dtype
+        # FLA requires half-precision; cast if entering from a fp32 call site
+        # (e.g. apply_updates_inplace which runs outside the autocast context).
+        if input_dtype == torch.float32:
+            fla_dtype = torch.float16
+            x = x.to(fla_dtype)
         B, T, D = x.shape
         H = 1 # Assuming single head mapping for the Titan core memory initially
         HeadDim = D
@@ -433,7 +444,10 @@ class SelfModifyingTitans(nn.Module):
         # 5. Reverse Projection & Handover (State Mutation)
         out = out.contiguous().view(B, T, D)
         state.memory.w2.copy_(final_state.view_as(state.memory.w2))
-        
+
+        # Restore original dtype so downstream modules see a consistent tensor type
+        if out.dtype != input_dtype:
+            out = out.to(input_dtype)
         return out, state
 
     def _apply_local_conv(self, x: torch.Tensor) -> torch.Tensor:
