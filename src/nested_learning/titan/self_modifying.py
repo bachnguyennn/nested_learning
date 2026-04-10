@@ -265,14 +265,15 @@ class SelfModifyingTitans(nn.Module):
             raise ValueError("chunk sizes must be positive")
 
         # --- FLA FAST PATH ---
+        # --- FLA FAST PATH ---
         if self.config.use_fla:
-            import importlib.util
-            if importlib.util.find_spec("fla") is None:
+            try:
+                import fla
+                return self._forward_with_updates_fla(x, state)
+            except ImportError:
                 logging.warning(
                     "FLA is requested but not installed. Falling back to native PyTorch..."
                 )
-            else:
-                return self._forward_with_updates_fla(x, state)
 
         outputs: list[torch.Tensor] = []
         other_k: list[torch.Tensor] = []
