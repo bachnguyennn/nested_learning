@@ -427,7 +427,8 @@ class SelfModifyingTitans(nn.Module):
         out, final_state = chunk_delta_rule(
             q_fla, k_fla, v_fla, beta_fla, 
             initial_state=initial_state, 
-            output_final_state=True
+            output_final_state=True,
+            head_first=True
         )
         
         # 5. Reverse Projection & Handover (State Mutation)
