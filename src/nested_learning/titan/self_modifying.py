@@ -1,9 +1,8 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Callable
-
-import logging
 
 import torch
 import torch.nn.functional as F
@@ -273,7 +272,9 @@ class SelfModifyingTitans(nn.Module):
         # --- FLA FAST PATH ---
         if self.config.use_fla:
             if not HAS_FLA:
-                logging.warning("FLA is requested but not installed. Falling back to native PyTorch...")
+                logging.warning(
+                    "FLA is requested but not installed. Falling back to native PyTorch..."
+                )
             else:
                 return self._forward_with_updates_fla(x, state)
 
