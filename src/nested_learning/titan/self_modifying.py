@@ -413,10 +413,10 @@ class SelfModifyingTitans(nn.Module):
         
         # 2. Reshape & Contiguity (The Memory Pitfall Fix)
         # Tensors strictly formatted for Triton C++ contiguous layouts
-        q_fla = q_seq.view(B, T, H, HeadDim).transpose(1, 2).contiguous()
-        k_fla = k_seq.view(B, T, H, HeadDim).transpose(1, 2).contiguous()
-        v_fla = v_seq.view(B, T, H, HeadDim).transpose(1, 2).contiguous()
-        beta_fla = beta.view(B, T, H).transpose(1, 2).contiguous()
+        q_fla = q_seq.view(B, T, H, HeadDim).contiguous()
+        k_fla = k_seq.view(B, T, H, HeadDim).contiguous()
+        v_fla = v_seq.view(B, T, H, HeadDim).contiguous()
+        beta_fla = beta.view(B, T, H).contiguous()
         
         # 3. Pull Initial State from PyTorch Object 
         # (w2 matrix naturally represents the preconditioned Delta tracking state)
@@ -427,12 +427,11 @@ class SelfModifyingTitans(nn.Module):
         out, final_state = chunk_delta_rule(
             q_fla, k_fla, v_fla, beta_fla, 
             initial_state=initial_state, 
-            output_final_state=True,
-            head_first=True
+            output_final_state=True
         )
         
         # 5. Reverse Projection & Handover (State Mutation)
-        out = out.transpose(1, 2).contiguous().view(B, T, D)
+        out = out.contiguous().view(B, T, D)
         state.memory.w2.copy_(final_state.view_as(state.memory.w2))
         
         return out, state
