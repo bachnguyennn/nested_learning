@@ -1350,7 +1350,7 @@ def _is_memory_param_name(name: str) -> bool:
 
 
 def _is_muon_candidate(name: str, param: torch.nn.Parameter) -> bool:
-    if param.ndim < 2:
+    if param.ndim != 2:  # Muon requires exactly 2D matrices; Conv/BN/1D go to AdamW
         return False
     lowered = name.lower()
     if "norm" in lowered or "embed" in lowered:
