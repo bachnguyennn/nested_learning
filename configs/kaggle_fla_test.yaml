@@ -1,0 +1,96 @@
+defaults:
+  - _self_
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+  job:
+    chdir: false
+
+model:
+  vocab_size: 1000
+  dim: 256
+  num_layers: 2
+  heads: 4
+  teach_scale: 0.10
+  teach_clip: 5.0
+  surprise_threshold: null
+  freeze_backbone: false
+  self_mod_lr: 0.001
+  block_variant: hope_selfmod
+  self_mod_use_fla: true
+  selfmod_use_fla: true
+  cms_levels:
+    - name: cms_fast
+      update_period: 1
+      optimizer_key: cms_opt
+    - name: cms_slow
+      update_period: 8
+      optimizer_key: cms_opt
+  titan_level:
+    name: titan
+    update_period: 8
+    optimizer_key: titan_opt
+  optimizers:
+    titan_opt:
+      type: deep_momentum
+      lr: 6.0e-4
+      params:
+        beta: 0.9
+        beta2: 0.999
+        variant: nl_l2_precond
+    cms_opt:
+      type: deep_momentum
+      lr: 3.0e-4
+      params:
+        beta: 0.9
+        beta2: 0.999
+        variant: nl_l2_precond
+
+data:
+  source: synthetic
+  vocab_size: 1000
+  seq_len: 512
+  dataset_size: 200
+  batch_size: 4
+  num_workers: 0
+
+train:
+  algorithm_mode: two_pass_stopgrad_updates
+  strict_streaming_contract: false
+  online_updates: false
+  online_chunk_size: 0
+  online_boundary_targets: false
+  online_carry_attention_cache: false
+  per_layer_teach_signal: false
+  steps: 20
+  log_interval: 5
+  device: "cuda"
+  seed: 42
+  deterministic: false
+  step_offset: 0
+  mixed_precision:
+    enabled: true
+    dtype: fp16
+  compile:
+    enable: false
+    mode: default
+  checkpoint:
+    enable: false
+
+optim:
+  type: muon
+  lr: 2.5e-4
+  weight_decay: 0.02
+  momentum: 0.95
+  betas:
+    - 0.9
+    - 0.999
+
+logging:
+  enabled: false
+  backend: json
+  path: logs/kaggle_fla_test.json
+  project: nested-learning
+  run_name: kaggle-fla-test
