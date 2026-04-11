@@ -74,8 +74,8 @@ train:
     enabled: true
     dtype: fp16
   compile:
-    enable: false
-    mode: default
+    enable: true
+    mode: reduce-overhead
   checkpoint:
     enable: false
 
