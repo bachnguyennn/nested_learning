@@ -58,6 +58,7 @@ class ModelConfig:
     self_mod_adaptive_q: bool = False
     self_mod_local_conv_window: int | None = 4
     self_mod_use_fla: bool = False
+    self_mod_num_fla_heads: int = 1  # auto-computed from dim when use_fla=True
     transformer_mlp_hidden_multiplier: int = 4
     transformer_activation: str = "gelu"
     block_variant: str = "hope_hybrid"
@@ -130,6 +131,7 @@ class HOPEModel(nn.Module):
                 selfmod_momentum=config.self_mod_momentum,
                 self_mod_lr=config.self_mod_lr,
                 selfmod_use_fla=config.self_mod_use_fla,
+                selfmod_num_fla_heads=config.self_mod_num_fla_heads,
                 optimizer_configs=config.optimizers or {},
             )
             self.blocks = nn.ModuleList(

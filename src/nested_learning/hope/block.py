@@ -735,6 +735,7 @@ class HOPESelfModBlockConfig:
     selfmod_use_alpha: bool = True
     selfmod_use_skip: bool = True
     selfmod_use_fla: bool = False
+    selfmod_num_fla_heads: int = 1  # auto-computed in SelfModifyingTitansConfig when dim>256
     selfmod_momentum: float = 0.0
     selfmod_online_updates: bool = True
     self_mod_lr: float = 1e-3
@@ -773,6 +774,7 @@ class HOPESelfModBlock(nn.Module):
                 adaptive_q=config.selfmod_adaptive_q,
                 local_conv_window=config.selfmod_local_conv_window,
                 use_fla=config.selfmod_use_fla,
+                num_fla_heads=config.selfmod_num_fla_heads,
             )
         )
         self.cms = CMS(

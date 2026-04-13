@@ -29,6 +29,10 @@ class SelfModifyingTitansConfig:
     local_conv_window: int | None = 4
     eps: float = 1e-6
     use_fla: bool = False
+    # Number of heads for the FLA kernel. When use_fla=True and this is 1 with
+    # dim>256, __post_init__ auto-computes the minimum required heads so that
+    # HeadDim = dim // num_fla_heads <= 256 (the Triton kernel hard-limit).
+    num_fla_heads: int = 1
 
     def __post_init__(self) -> None:
         if self.dim <= 0:
@@ -47,6 +51,20 @@ class SelfModifyingTitansConfig:
             raise ValueError("local_conv_window must be positive")
         if self.chunk_size_memory is None:
             object.__setattr__(self, "chunk_size_memory", int(self.chunk_size_other))
+        if self.use_fla:
+            # Auto-compute num_fla_heads when dim > 256 and user left default
+            if self.num_fla_heads == 1 and self.dim > 256:
+                object.__setattr__(self, "num_fla_heads", max(1, self.dim // 256))
+            head_dim = self.dim // self.num_fla_heads
+            if head_dim > 256:
+                raise ValueError(
+                    f"FLA HeadDim={head_dim} exceeds kernel limit of 256. "
+                    f"Set num_fla_heads >= {self.dim // 256}."
+                )
+            if self.dim % self.num_fla_heads != 0:
+                raise ValueError(
+                    f"dim={self.dim} must be divisible by num_fla_heads={self.num_fla_heads}."
+                )
 
 
 @dataclass
@@ -177,6 +195,18 @@ class SelfModifyingTitans(nn.Module):
         self.m_memory = ResidualMLPMemory(
             in_dim=dim, out_dim=dim, hidden_dim=hidden, activation=act, use_skip=config.use_skip
         )
+        # Dedicated learnable initial associative-memory state for the FLA kernel.
+        # Shape: [H, HeadDim, HeadDim]. Separate from m_memory.w2 (PyTorch fallback)
+        # because multi-head sizes are incompatible (H*HeadDim² ≠ D² for H>1).
+        # Xavier-uniform init breaks delta-rule symmetry faster than zeros, which
+        # matters when eta_scale is small and the initial state dominates early tokens.
+        self.fla_initial_state: nn.Parameter | None = None
+        if config.use_fla:
+            H = config.num_fla_heads
+            HeadDim = config.dim // H
+            fla_state = torch.empty(H, HeadDim, HeadDim)
+            nn.init.xavier_uniform_(fla_state.view(H, -1), gain=1.0 / (HeadDim ** 0.5))
+            self.fla_initial_state = nn.Parameter(fla_state)
 
     def init_fast_state(self) -> SelfModifyingTitansState:
         return SelfModifyingTitansState(
@@ -392,24 +422,28 @@ class SelfModifyingTitans(nn.Module):
         self, x: torch.Tensor, state: SelfModifyingTitansState
     ) -> tuple[torch.Tensor, SelfModifyingTitansState]:
         """
-        Production-grade FLA integration relying on Triton chunk_delta_rule.
-        This bypasses PyTorch subgraph generation, flattening the WY scan.
+        Multi-head FLA via Triton chunk_delta_rule.
 
-        FLA Triton kernels require bfloat16 or float16. All projections run in
-        x's native dtype (fp32 or half). Only the tensors passed into the C++
-        kernel are cast to fp16 at the boundary; the output is cast back on exit.
+        Splits D into H independent heads of size HeadDim = D // H, satisfying
+        the kernel hard-limit HeadDim <= 256. All projections run in x's native
+        dtype (fp32 or half-precision); only tensors at the kernel boundary are
+        cast to fp16/bf16 and restored on exit.
+
+        The associative-memory initial state is a dedicated learnable nn.Parameter
+        (fla_initial_state) rather than the PyTorch-path w2 weights, because
+        the multi-head shape [H, HeadDim, HeadDim] is incompatible with the flat
+        [D, D] w2 matrix for H > 1.
         """
         input_dtype = x.dtype
-        # Determine the target dtype for the FLA kernel boundary cast.
-        # If we are already in a half-precision context (fp16/bf16), use that.
-        # If we are in fp32 (e.g. apply_updates_inplace outside autocast), use fp16.
+        # Use existing half-precision under autocast; fall back to fp16 from fp32
+        # (e.g. apply_updates_inplace runs outside the AMP context).
         fla_dtype = input_dtype if input_dtype != torch.float32 else torch.float16
 
         B, T, D = x.shape
-        H = 1  # Single head mapping for the Titan core memory
-        HeadDim = D
+        H       = self.config.num_fla_heads
+        HeadDim = D // H
 
-        # 1. Project sequence in native dtype — compatible with fp32 nn.Linear weights
+        # 1. Project in native dtype — compatible with fp32 nn.Linear / fast weights
         k_seq = self._memory_forward(x, state.k)
         v_seq = self._memory_forward(x, state.v)
         q_seq = self._memory_forward(x, state.q) if self.config.adaptive_q else self.w_q(x)
@@ -418,31 +452,40 @@ class SelfModifyingTitans(nn.Module):
             k_seq = F.normalize(k_seq, dim=-1, eps=self.config.eps)
             q_seq = F.normalize(q_seq, dim=-1, eps=self.config.eps)
 
-        eta_seq = self._memory_forward(x, state.eta).squeeze(-1)
-        beta = F.softplus(eta_seq) * self.config.eta_scale
+        eta_seq = self._memory_forward(x, state.eta).squeeze(-1)  # [B, T]
+        beta    = F.softplus(eta_seq) * self.config.eta_scale      # [B, T]
 
-        # 2. Cast ONLY the kernel inputs to the required half-precision at the boundary
-        q_fla = q_seq.view(B, T, H, HeadDim).to(fla_dtype).contiguous()
-        k_fla = k_seq.view(B, T, H, HeadDim).to(fla_dtype).contiguous()
-        v_fla = v_seq.view(B, T, H, HeadDim).to(fla_dtype).contiguous()
-        beta_fla = beta.view(B, T, H).to(fla_dtype).contiguous()
+        # 2. Cast only the kernel inputs to half-precision at the C++ boundary;
+        #    split D into H heads. Beta is broadcast (one scalar per token) to all heads.
+        q_fla    = q_seq.view(B, T, H, HeadDim).to(fla_dtype).contiguous()
+        k_fla    = k_seq.view(B, T, H, HeadDim).to(fla_dtype).contiguous()
+        v_fla    = v_seq.view(B, T, H, HeadDim).to(fla_dtype).contiguous()
+        beta_fla = beta.unsqueeze(-1).expand(B, T, H).to(fla_dtype).contiguous()
 
-        # 3. Pull Initial State and cast to match kernel dtype
+        # 3. Learnable initial associative state [B, H, HeadDim, HeadDim].
+        #    .contiguous() on the expanded view allocates a fresh contiguous tensor;
+        #    .clone() would be a redundant second allocation and is omitted.
+        assert self.fla_initial_state is not None, (
+            "fla_initial_state is None — was the model built with use_fla=True?"
+        )
         initial_state = (
-            state.memory.w2.view(B, H, HeadDim, HeadDim).to(fla_dtype).contiguous().clone()
+            self.fla_initial_state
+            .unsqueeze(0)
+            .expand(B, -1, -1, -1)
+            .to(fla_dtype)
+            .contiguous()
         )
 
-        # 4. Hardware Execute
+        # 4. Triton kernel (autograd handled by the FLA library)
         from fla.ops.delta_rule import chunk_delta_rule
-        out, final_state = chunk_delta_rule(
+        out, _ = chunk_delta_rule(
             q_fla, k_fla, v_fla, beta_fla,
             initial_state=initial_state,
-            output_final_state=True,
+            output_final_state=False,  # state is meta-learned, not mutated in-place
         )
 
-        # 5. Handover and restore original dtype for downstream compatibility
+        # 5. Merge H heads back into D and restore the caller's original dtype
         out = out.contiguous().view(B, T, D).to(input_dtype)
-        state.memory.w2.copy_(final_state.view_as(state.memory.w2))
         return out, state
 
     def _apply_local_conv(self, x: torch.Tensor) -> torch.Tensor:
