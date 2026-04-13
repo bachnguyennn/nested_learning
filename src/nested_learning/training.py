@@ -138,6 +138,7 @@ def build_model_from_cfg(model_cfg: DictConfig) -> torch.nn.Module:
         self_mod_local_conv_window=self_mod_local_conv_window,
         self_mod_use_fla=bool(model_cfg.get("self_mod_use_fla", False)),
         self_mod_num_fla_heads=int(model_cfg.get("self_mod_num_fla_heads", 1)),
+        cms_hidden_multiplier=int(model_cfg.get("cms_hidden_multiplier", 4)),
         transformer_mlp_hidden_multiplier=int(
             model_cfg.get("transformer_mlp_hidden_multiplier", 4)
         ),

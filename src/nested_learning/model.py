@@ -60,6 +60,7 @@ class ModelConfig:
     self_mod_use_fla: bool = False
     self_mod_num_fla_heads: int = 1  # auto-computed from dim when use_fla=True
     transformer_mlp_hidden_multiplier: int = 4
+    cms_hidden_multiplier: int = 4  # CMS MLP width = dim * this value (controls FLOP budget)
     transformer_activation: str = "gelu"
     block_variant: str = "hope_hybrid"
 
@@ -132,6 +133,7 @@ class HOPEModel(nn.Module):
                 self_mod_lr=config.self_mod_lr,
                 selfmod_use_fla=config.self_mod_use_fla,
                 selfmod_num_fla_heads=config.self_mod_num_fla_heads,
+                cms_hidden_multiplier=config.cms_hidden_multiplier,
                 optimizer_configs=config.optimizers or {},
             )
             self.blocks = nn.ModuleList(
