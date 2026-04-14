@@ -45,6 +45,45 @@ class CMSBlock(nn.Module):
         return x + delta
 
 
+class CMSSlotBlock(nn.Module):
+    def __init__(
+        self,
+        dim: int,
+        num_slots: int = 1024,
+        grad_clip: float = 1.0,
+        use_layernorm: bool = True,
+    ):
+        super().__init__()
+        self.num_slots = num_slots
+        self.grad_clip = grad_clip
+        self.norm = nn.LayerNorm(dim) if use_layernorm else nn.Identity()
+        
+        self.memory_k = nn.Parameter(torch.randn(num_slots, dim) * (dim ** -0.5))
+        self.memory_v = nn.Parameter(torch.randn(num_slots, dim) * (dim ** -0.5))
+        
+        self.q_proj = nn.Linear(dim, dim, bias=False)
+        self.o_proj = nn.Linear(dim, dim, bias=False)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:  # type: ignore[override] # noqa: F811
+        residual = x
+        x = self.norm(x)
+        
+        q = self.q_proj(x)
+        
+        scores = torch.matmul(q, self.memory_k.t()) / (x.shape[-1] ** 0.5)
+        attn = torch.softmax(scores, dim=-1)
+        
+        read = torch.matmul(attn, self.memory_v)
+        delta = self.o_proj(read)
+        
+        if self.training and self.grad_clip > 0:
+            with torch.no_grad():
+                norm = delta.norm(dim=-1, keepdim=True)
+                scale = torch.clamp(norm / self.grad_clip, min=1.0)
+            delta = delta / scale
+        return residual + delta
+
+
 class CMS(nn.Module):
     """Continuum Memory System with multi-frequency updates."""
 
@@ -60,18 +99,25 @@ class CMS(nn.Module):
         super().__init__()
         ordered = ensure_level_specs(levels)
         self.level_specs: Sequence[LevelSpec] = tuple(ordered)
-        self.blocks = nn.ModuleDict(
-            {
-                spec.name: CMSBlock(
+        self.blocks = nn.ModuleDict()
+        for spec in self.level_specs:
+            arch_type = getattr(spec, "arch_type", "mlp")
+            if arch_type == "slot":
+                self.blocks[spec.name] = CMSSlotBlock(
+                    dim,
+                    num_slots=getattr(spec, "num_slots", 1024),
+                    grad_clip=1.0,
+                    use_layernorm=use_layernorm,
+                )
+            else:
+                self.blocks[spec.name] = CMSBlock(
                     dim,
                     hidden_multiplier=hidden_multiplier,
                     activation=activation,
                     grad_clip=1.0,
                     use_layernorm=use_layernorm,
                 )
-                for spec in self.level_specs
-            }
-        )
+
 
     def forward(
         self,

@@ -13,6 +13,8 @@ class LevelSpec:
     warmup_steps: int = 0
     jitter: int = 0
     optimizer_key: str | None = None
+    arch_type: str = "mlp"
+    num_slots: int = 1024
 
     def __post_init__(self) -> None:
         if self.update_period <= 0:

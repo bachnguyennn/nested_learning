@@ -29,7 +29,12 @@ model:
       update_period: 1
       optimizer_key: cms_opt
     - name: cms_slow
-      update_period: 8
+      update_period: 16
+      optimizer_key: cms_opt
+    - name: cms_ultra
+      update_period: 64
+      arch_type: slot
+      num_slots: 1024
       optimizer_key: cms_opt
   titan_level:
     name: titan
