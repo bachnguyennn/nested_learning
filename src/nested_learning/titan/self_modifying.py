@@ -10,8 +10,6 @@ from torch import nn
 from torch.func import grad, vmap
 
 
-
-
 @dataclass(frozen=True)
 class SelfModifyingTitansConfig:
     dim: int
@@ -297,10 +295,10 @@ class SelfModifyingTitans(nn.Module):
         # --- FLA FAST PATH ---
         # --- FLA FAST PATH ---
         if self.config.use_fla:
-            try:
-                import fla
+            import importlib.util
+            if importlib.util.find_spec("fla") is not None:
                 return self._forward_with_updates_fla(x, state)
-            except ImportError:
+            else:
                 logging.warning(
                     "FLA is requested but not installed. Falling back to native PyTorch..."
                 )
