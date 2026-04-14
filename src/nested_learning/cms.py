@@ -70,7 +70,13 @@ class CMSSlotBlock(nn.Module):
         
         q = self.q_proj(x)
         
-        scores = torch.matmul(q, self.memory_k.t()) / (x.shape[-1] ** 0.5)
+        # QK-Norm: Industry standard to prevent FP16 representation collapse (inf - inf = nan)
+        # Binds the entire dot-product strictly between [-1, 1], guaranteeing mathematical stability.
+        q_norm = F.normalize(q, p=2, dim=-1)
+        k_norm = F.normalize(self.memory_k, p=2, dim=-1)
+        
+        # Multiply by a temperature tau=10 to allow peaked softmax distributions
+        scores = torch.matmul(q_norm, k_norm.t()) * 10.0
         attn = torch.softmax(scores, dim=-1)
         
         read = torch.matmul(attn, self.memory_v)
