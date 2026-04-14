@@ -59,6 +59,7 @@ class ModelConfig:
     self_mod_local_conv_window: int | None = 4
     self_mod_use_fla: bool = False
     self_mod_num_fla_heads: int = 1  # auto-computed from dim when use_fla=True
+    self_mod_fast_weight_dropout: float = 0.0  # 0.0 = disabled
     transformer_mlp_hidden_multiplier: int = 4
     cms_hidden_multiplier: int = 4  # CMS MLP width = dim * this value (controls FLOP budget)
     transformer_activation: str = "gelu"
@@ -133,6 +134,7 @@ class HOPEModel(nn.Module):
                 self_mod_lr=config.self_mod_lr,
                 selfmod_use_fla=config.self_mod_use_fla,
                 selfmod_num_fla_heads=config.self_mod_num_fla_heads,
+                selfmod_fast_weight_dropout=config.self_mod_fast_weight_dropout,
                 cms_hidden_multiplier=config.cms_hidden_multiplier,
                 optimizer_configs=config.optimizers or {},
             )

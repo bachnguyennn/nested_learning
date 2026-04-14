@@ -736,6 +736,7 @@ class HOPESelfModBlockConfig:
     selfmod_use_skip: bool = True
     selfmod_use_fla: bool = False
     selfmod_num_fla_heads: int = 1  # auto-computed in SelfModifyingTitansConfig when dim>256
+    selfmod_fast_weight_dropout: float = 0.0  # fraction of passes with fast-weights suppressed
     selfmod_momentum: float = 0.0
     selfmod_online_updates: bool = True
     self_mod_lr: float = 1e-3
@@ -775,6 +776,7 @@ class HOPESelfModBlock(nn.Module):
                 local_conv_window=config.selfmod_local_conv_window,
                 use_fla=config.selfmod_use_fla,
                 num_fla_heads=config.selfmod_num_fla_heads,
+                fast_weight_dropout=config.selfmod_fast_weight_dropout,
             )
         )
         self.cms = CMS(

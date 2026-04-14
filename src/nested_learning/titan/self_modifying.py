@@ -31,6 +31,10 @@ class SelfModifyingTitansConfig:
     # dim>256, __post_init__ auto-computes the minimum required heads so that
     # HeadDim = dim // num_fla_heads <= 256 (the Triton kernel hard-limit).
     num_fla_heads: int = 1
+    # Fraction of forward passes [0, 1) where the in-context delta-rule update is
+    # suppressed (beta zeroed). Forces slow CMS weights to receive real gradients
+    # instead of being starved by the fast weights. 0.0 = disabled (default).
+    fast_weight_dropout: float = 0.0
 
     def __post_init__(self) -> None:
         if self.dim <= 0:
@@ -63,6 +67,8 @@ class SelfModifyingTitansConfig:
                 raise ValueError(
                     f"dim={self.dim} must be divisible by num_fla_heads={self.num_fla_heads}."
                 )
+        if not (0.0 <= self.fast_weight_dropout < 1.0):
+            raise ValueError("fast_weight_dropout must be in [0, 1)")
 
 
 @dataclass
@@ -459,6 +465,12 @@ class SelfModifyingTitans(nn.Module):
         k_fla    = k_seq.view(B, T, H, HeadDim).to(fla_dtype).contiguous()
         v_fla    = v_seq.view(B, T, H, HeadDim).to(fla_dtype).contiguous()
         beta_fla = beta.unsqueeze(-1).expand(B, T, H).to(fla_dtype).contiguous()
+
+        # Fast-weight dropout: zero-out beta so the delta rule makes no in-context
+        # updates, forcing the CMS slow levels to be self-sufficient on these passes.
+        if self.config.fast_weight_dropout > 0.0 and self.training:
+            if torch.rand(1, device=x.device).item() < self.config.fast_weight_dropout:
+                beta_fla = torch.zeros_like(beta_fla)
 
         # 3. Learnable initial associative state [B, H, HeadDim, HeadDim].
         #    .contiguous() on the expanded view allocates a fresh contiguous tensor;
