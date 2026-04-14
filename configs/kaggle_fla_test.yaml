@@ -21,7 +21,7 @@ model:
   block_variant: hope_selfmod
   self_mod_use_fla: true
   self_mod_num_fla_heads: 4
-  cms_hidden_multiplier: 2
+  cms_hidden_multiplier: 1
   selfmod_use_fla: true
   cms_levels:
     - name: cms_fast
