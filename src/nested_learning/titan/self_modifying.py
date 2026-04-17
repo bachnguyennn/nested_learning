@@ -35,6 +35,14 @@ class SelfModifyingTitansConfig:
     # suppressed (beta zeroed). Forces slow CMS weights to receive real gradients
     # instead of being starved by the fast weights. 0.0 = disabled (default).
     fast_weight_dropout: float = 0.0
+    # FSRM-inspired: L2-normalize output of the memory MLP (sphere projection).
+    # Bounds representation magnitude flowing into CMS, preventing NaN cascades.
+    # Default False for backward compatibility; opt-in via config.
+    output_l2_norm: bool = False
+    # FSRM-inspired: make eta_scale a learnable nn.Parameter instead of fixed.
+    # Lets the model self-calibrate its update rate during training.
+    # Default False for backward compatibility; opt-in via config.
+    learnable_eta: bool = False
 
     def __post_init__(self) -> None:
         if self.dim <= 0:
@@ -211,6 +219,11 @@ class SelfModifyingTitans(nn.Module):
             fla_state = torch.empty(H, HeadDim, HeadDim)
             nn.init.xavier_uniform_(fla_state.view(H, -1), gain=1.0 / (HeadDim ** 0.5))
             self.fla_initial_state = nn.Parameter(fla_state)
+        # FSRM-inspired learnable step size (γ in FSRM, eta_scale in HOPE).
+        # Using softplus in forward to ensure it stays positive.
+        self.eta_param: nn.Parameter | None = None
+        if config.learnable_eta:
+            self.eta_param = nn.Parameter(torch.tensor(float(config.eta_scale)))
 
     def init_fast_state(self) -> SelfModifyingTitansState:
         return SelfModifyingTitansState(
@@ -245,12 +258,25 @@ class SelfModifyingTitans(nn.Module):
         )
         self._load_state_mean_(updated)
 
+    def _effective_eta_scale(self) -> torch.Tensor | float:
+        """Return the (possibly learnable) eta scale factor, kept positive."""
+        if self.eta_param is not None:
+            return F.softplus(self.eta_param)
+        return self.config.eta_scale
+
+    def _maybe_sphere_norm(self, x: torch.Tensor) -> torch.Tensor:
+        """FSRM-inspired sphere projection: normalize output to unit sphere."""
+        if self.config.output_l2_norm:
+            return F.normalize(x, dim=-1, eps=self.config.eps)
+        return x
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:  # type: ignore[override]
         x = self._apply_local_conv(x)
         q = self.m_q(x) if self.config.adaptive_q else self.w_q(x)
         if self.config.qk_l2_norm:
             q = F.normalize(q, dim=-1, eps=self.config.eps)
-        return self.m_memory(q)
+        out = self.m_memory(q)
+        return self._maybe_sphere_norm(out)
 
     def forward_with_state(
         self,
@@ -271,7 +297,8 @@ class SelfModifyingTitans(nn.Module):
         )
         if self.config.qk_l2_norm:
             q = F.normalize(q, dim=-1, eps=self.config.eps)
-        return self._memory_forward(q, state.memory, meta=self.m_memory)
+        out = self._memory_forward(q, state.memory, meta=self.m_memory)
+        return self._maybe_sphere_norm(out)
 
     def forward_with_updates(
         self,
@@ -343,13 +370,14 @@ class SelfModifyingTitans(nn.Module):
                     k_chunk = F.normalize(k_chunk, dim=-1, eps=self.config.eps)
                     q_chunk = F.normalize(q_chunk, dim=-1, eps=self.config.eps)
                 eta_chunk = self._memory_forward(x_chunk, state.eta).squeeze(-1)
-                eta_chunk = F.softplus(eta_chunk) * self.config.eta_scale
+                eta_chunk = F.softplus(eta_chunk) * self._effective_eta_scale()
                 if self.config.use_alpha:
                     alpha_chunk = self._memory_forward(x_chunk, state.alpha).squeeze(-1)
                     alpha_chunk = torch.sigmoid(alpha_chunk)
                 else:
                     alpha_chunk = torch.ones_like(eta_chunk)
                 o_chunk = self._memory_forward(q_chunk, state.memory)
+                o_chunk = self._maybe_sphere_norm(o_chunk)
                 outputs.append(o_chunk)
 
                 other_k.append(k_chunk)
@@ -457,7 +485,7 @@ class SelfModifyingTitans(nn.Module):
             q_seq = F.normalize(q_seq, dim=-1, eps=self.config.eps)
 
         eta_seq = self._memory_forward(x, state.eta).squeeze(-1)  # [B, T]
-        beta    = F.softplus(eta_seq) * self.config.eta_scale      # [B, T]
+        beta    = F.softplus(eta_seq) * self._effective_eta_scale()  # [B, T]
 
         # 2. Cast only the kernel inputs to half-precision at the C++ boundary;
         #    split D into H heads. Beta is broadcast (one scalar per token) to all heads.
@@ -496,6 +524,7 @@ class SelfModifyingTitans(nn.Module):
 
         # 5. Merge H heads back into D and restore the caller's original dtype
         out = out.contiguous().view(B, T, D).to(input_dtype)
+        out = self._maybe_sphere_norm(out)
         return out, state
 
     def _apply_local_conv(self, x: torch.Tensor) -> torch.Tensor:

@@ -60,6 +60,16 @@ class ModelConfig:
     self_mod_use_fla: bool = False
     self_mod_num_fla_heads: int = 1  # auto-computed from dim when use_fla=True
     self_mod_fast_weight_dropout: float = 0.0  # 0.0 = disabled
+    # FSRM-inspired: sphere normalise SelfMod output before CMS
+    # Default False for backward compatibility; opt-in via config.
+    self_mod_output_l2_norm: bool = False
+    # FSRM-inspired: make eta_scale a learnable nn.Parameter
+    # Default False for backward compatibility; opt-in via config.
+    self_mod_learnable_eta: bool = False
+    # FSRM-inspired: weight-shared inner refinement loop (T steps before CMS)
+    inner_loop_steps: int = 1      # T=1 = no refinement (backward compatible)
+    inner_loop_hidden_mult: int = 2
+    inner_loop_alpha_init: float = 0.1  # initial step-size for RefineBlock
     transformer_mlp_hidden_multiplier: int = 4
     cms_hidden_multiplier: int = 4  # CMS MLP width = dim * this value (controls FLOP budget)
     transformer_activation: str = "gelu"
@@ -135,6 +145,11 @@ class HOPEModel(nn.Module):
                 selfmod_use_fla=config.self_mod_use_fla,
                 selfmod_num_fla_heads=config.self_mod_num_fla_heads,
                 selfmod_fast_weight_dropout=config.self_mod_fast_weight_dropout,
+                selfmod_output_l2_norm=config.self_mod_output_l2_norm,
+                selfmod_learnable_eta=config.self_mod_learnable_eta,
+                inner_loop_steps=config.inner_loop_steps,
+                inner_loop_hidden_mult=config.inner_loop_hidden_mult,
+                inner_loop_alpha_init=config.inner_loop_alpha_init,
                 cms_hidden_multiplier=config.cms_hidden_multiplier,
                 optimizer_configs=config.optimizers or {},
             )
