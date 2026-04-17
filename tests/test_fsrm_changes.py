@@ -112,7 +112,12 @@ def test_learnable_eta_param_count() -> None:
 
 
 def test_learnable_eta_updates_under_optim() -> None:
-    """eta_param actually updates after one optimizer step on a tiny loss."""
+    """eta_param updates after one optimizer step via the update path.
+
+    NOTE: eta_param is only used in forward_with_updates() (the delta-rule
+    update path), NOT in the plain forward() read path.  So we must test
+    through the update path to see a gradient.
+    """
     from nested_learning.titan.self_modifying import (
         SelfModifyingTitans,
         SelfModifyingTitansConfig,
@@ -121,7 +126,8 @@ def test_learnable_eta_updates_under_optim() -> None:
     sm = SelfModifyingTitans(cfg)
     opt = torch.optim.SGD(sm.parameters(), lr=0.1)
     x = torch.randn(1, 4, 32)
-    out = sm(x)
+    state = sm.init_fast_state()
+    out, _ = sm.forward_with_updates(x, state)
     loss = out.sum()
     loss.backward()
     eta_before = sm.eta_param.item()
@@ -235,7 +241,14 @@ def test_block_t4_gradient_stability() -> None:
 
 
 def test_gradient_flow_all_features() -> None:
-    """All FSRM features ON: gradients flow to alpha, eta_param, and all weights."""
+    """All FSRM features ON: gradients flow to alpha and refine weights.
+
+    NOTE: eta_param only participates in the forward_with_updates() delta-rule
+    path, NOT the read-only forward().  The block's default forward (without
+    fast_state) calls selfmod.forward() which is the read path.  So we check
+    that alpha receives gradients (it's in the read path via RefineBlock),
+    and separately confirm eta_param exists but correctly has no gradient here.
+    """
     from nested_learning.hope.block import HOPESelfModBlock, HOPESelfModBlockConfig
     from nested_learning.levels import LevelSpec
 
@@ -252,14 +265,16 @@ def test_gradient_flow_all_features() -> None:
     loss = out.sum()
     loss.backward()
 
-    # Refine alpha gets gradient
+    # Refine alpha gets gradient (it's in the read path)
     assert block.refine is not None
     assert block.refine.alpha.grad is not None, "alpha should receive gradient"
-    # Learnable eta gets gradient
-    assert block.selfmod.eta_param is not None
-    assert block.selfmod.eta_param.grad is not None, "eta_param should receive gradient"
+    # eta_param exists but has NO gradient in read-only forward — this is correct
+    assert block.selfmod.eta_param is not None, "eta_param should exist"
+    assert block.selfmod.eta_param.grad is None, (
+        "eta_param should NOT have gradient in read path (only used in update path)"
+    )
     print(f"  ✓ All features ON: alpha.grad={block.refine.alpha.grad.item():.6f}, "
-          f"eta.grad={block.selfmod.eta_param.grad.item():.6f}")
+          f"eta_param exists (grad deferred to update path)")
 
 
 def test_alpha_init_config() -> None:
