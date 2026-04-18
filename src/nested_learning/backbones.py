@@ -118,13 +118,14 @@ class SelfAttention(nn.Module):
             attn_mask = key_positions.unsqueeze(0) <= query_positions.unsqueeze(1)
         is_causal = self.config.causal and attn_mask is None
         device_type = q.device.type
-        # MPS (Mac GPU) Fix: F.scaled_dot_product_attention can be unstable with boolean masks 
-        # or -inf on certain torch versions. We convert to float and use a safe large negative.
-        if attn_mask is not None and device_type == "mps":
+        # Fix: F.scaled_dot_product_attention is unstable with boolean masks
+        # under fp16/bf16 on both CUDA and MPS — the implicit -inf fill can
+        # produce NaN in softmax.  Convert to float and use a safe large negative.
+        if attn_mask is not None:
             float_mask = torch.zeros_like(attn_mask, dtype=q.dtype)
-            float_mask.masked_fill_(~attn_mask, -1e4) # Safe negative for MPS
+            float_mask.masked_fill_(~attn_mask, -1e4)  # Safe negative for fp16
             attn_mask = float_mask
-            is_causal = False # We handled causality in the mask
+            is_causal = False  # We handled causality in the mask
 
         # Performance path for CUDA
         if (

@@ -1,0 +1,99 @@
+defaults:
+  - _self_
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+  job:
+    chdir: false
+
+model:
+  vocab_size: 1000
+  dim: 128           # small for fast init
+  num_layers: 2
+  heads: 4
+  teach_scale: 0.10
+  teach_clip: 5.0
+  surprise_threshold: null
+  freeze_backbone: false
+  self_mod_lr: 0.001
+  block_variant: hope_selfmod
+  self_mod_use_fla: false
+
+  # FSRM features ON
+  self_mod_output_l2_norm: true
+  self_mod_learnable_eta: true
+  inner_loop_steps: 2
+  inner_loop_hidden_mult: 2
+  inner_loop_alpha_init: 0.1
+
+  cms_hidden_multiplier: 2    # smaller MLP inside CMS
+  titan_level:
+    name: titan
+    update_period: 8
+    optimizer_key: titan_opt
+  cms_levels:
+    - name: cms_fast
+      update_period: 1
+      optimizer_key: cms_opt
+    - name: cms_slow
+      update_period: 8
+      optimizer_key: cms_opt
+  # Use simple deep_momentum WITHOUT nl_l2_precond to avoid expensive init
+  optimizers:
+    titan_opt:
+      type: deep_momentum
+      lr: 6.0e-4
+      params:
+        beta: 0.9
+        beta2: 0.999
+    cms_opt:
+      type: deep_momentum
+      lr: 3.0e-4
+      params:
+        beta: 0.9
+        beta2: 0.999
+
+data:
+  source: synthetic
+  vocab_size: 1000
+  seq_len: 128        # shorter sequences
+  dataset_size: 100   # small dataset
+  batch_size: 4
+  num_workers: 0
+
+train:
+  algorithm_mode: two_pass_stopgrad_updates
+  strict_streaming_contract: false
+  online_updates: false
+  online_chunk_size: 0
+  online_boundary_targets: false
+  online_carry_attention_cache: false
+  per_layer_teach_signal: false
+  steps: 100
+  log_interval: 5
+  device: "cuda"
+  seed: 42
+  deterministic: false
+  mixed_precision:
+    enabled: false    # disable fp16 for debug
+    dtype: fp16
+  compile:
+    enable: false
+  checkpoint:
+    enable: false
+
+# Simple AdamW — no Muon, no orthogonalization cost
+optim:
+  type: adamw
+  lr: 3.0e-4
+  weight_decay: 0.01
+  fused: false
+
+logging:
+  enabled: true
+  backend: json
+  path: /kaggle/working/logs/fsrm_debug.json
+  project: nested-learning
+  run_name: fsrm-debug
