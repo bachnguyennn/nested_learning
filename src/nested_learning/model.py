@@ -66,12 +66,6 @@ class ModelConfig:
     # FSRM-inspired: make eta_scale a learnable nn.Parameter.
     # Ablation shows no measurable effect at ≤2000 steps — disabled by default.
     self_mod_learnable_eta: bool = False
-    # FSRM-inspired: weight-shared inner refinement loop (T steps before CMS).
-    # Ablation on WikiText-103: T=2 optimal (+13% compute, −0.04 loss).
-    # T=1 = no refinement (backward compatible). T>2 shows diminishing returns.
-    inner_loop_steps: int = 1      # set to 2 to enable; T>4 hurts quality
-    inner_loop_hidden_mult: int = 2
-    inner_loop_alpha_init: float = 0.1  # initial step-size for RefineBlock
     transformer_mlp_hidden_multiplier: int = 4
     cms_hidden_multiplier: int = 4  # CMS MLP width = dim * this value (controls FLOP budget)
     transformer_activation: str = "gelu"
@@ -149,9 +143,6 @@ class HOPEModel(nn.Module):
                 selfmod_fast_weight_dropout=config.self_mod_fast_weight_dropout,
                 selfmod_output_l2_norm=config.self_mod_output_l2_norm,
                 selfmod_learnable_eta=config.self_mod_learnable_eta,
-                inner_loop_steps=config.inner_loop_steps,
-                inner_loop_hidden_mult=config.inner_loop_hidden_mult,
-                inner_loop_alpha_init=config.inner_loop_alpha_init,
                 cms_hidden_multiplier=config.cms_hidden_multiplier,
                 optimizer_configs=config.optimizers or {},
             )

@@ -21,12 +21,9 @@ model:
   block_variant: hope_selfmod
   self_mod_use_fla: false
 
-  # FSRM features ON
+  # FSRM features ON (sphere norm + learnable eta only)
   self_mod_output_l2_norm: true
   self_mod_learnable_eta: true
-  inner_loop_steps: 2
-  inner_loop_hidden_mult: 2
-  inner_loop_alpha_init: 0.1
 
   cms_hidden_multiplier: 2    # smaller MLP inside CMS
   titan_level:

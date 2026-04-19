@@ -21,7 +21,6 @@ from ..levels import LevelSpec
 from ..optim.manager import LevelConfig, LevelOptimizerManager
 from ..titan.memory import TitanMemory, TitanMemoryConfig
 from ..titan.self_modifying import SelfModifyingTitans, SelfModifyingTitansConfig
-from .refine import RefineBlock
 from .self_mod import SelfModifier
 
 
@@ -749,13 +748,6 @@ class HOPESelfModBlockConfig:
     # FSRM-inspired: make eta_scale learnable.
     # Default False for backward compatibility; opt-in via config.
     selfmod_learnable_eta: bool = False
-    # FSRM-inspired: weight-shared inner refinement loop between SelfMod and CMS.
-    # T=1 means no refinement (backward compatible). T>1 applies RefineBlock T times.
-    inner_loop_steps: int = 1
-    inner_loop_hidden_mult: int = 2
-    # Initial value for the RefineBlock learnable step-size α.
-    # Separate from hidden_mult so you can control step scale independently.
-    inner_loop_alpha_init: float = 0.1
     optimizer_configs: Dict[str, dict] = field(default_factory=dict)
 
 
@@ -795,17 +787,6 @@ class HOPESelfModBlock(nn.Module):
                 learnable_eta=config.selfmod_learnable_eta,
             )
         )
-        # FSRM-inspired: weight-shared inner refinement loop.
-        # When inner_loop_steps > 1, a RefineBlock is applied T times between
-        # SelfMod output and CMS input to iteratively refine the representation.
-        self.refine: RefineBlock | None = None
-        if config.inner_loop_steps > 1:
-            self.refine = RefineBlock(
-                dim=config.dim,
-                hidden_multiplier=config.inner_loop_hidden_mult,
-                init_alpha=config.inner_loop_alpha_init,
-                sphere_norm=config.selfmod_output_l2_norm,
-            )
         self.cms = CMS(
             dim=config.dim,
             levels=config.cms_levels,
@@ -836,9 +817,6 @@ class HOPESelfModBlock(nn.Module):
         if fast_state is None:
             # Differentiable read path (used for the outer loss).
             o = self.selfmod(x)
-            # FSRM-inspired inner refinement loop.
-            if self.refine is not None:
-                o = self.refine(o, T=self.config.inner_loop_steps)
             # Explicit update pass (typically called under `torch.no_grad()` after backward).
             if teach_signal is not None and self.config.selfmod_online_updates:
                 self.selfmod.apply_updates_inplace(x)
@@ -863,9 +841,6 @@ class HOPESelfModBlock(nn.Module):
             fast_state.selfmod_state = updated
         else:
             o = self.selfmod.forward_with_state(x, fast_state.selfmod_state)
-        # FSRM-inspired inner refinement loop (fast-state path).
-        if self.refine is not None:
-            o = self.refine(o, T=self.config.inner_loop_steps)
         if teach_signal is not None and self.config.cms_online_updates:
             cms_out = self._cms_forward_online_fast(
                 o,

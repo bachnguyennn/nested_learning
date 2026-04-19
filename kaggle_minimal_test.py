@@ -25,10 +25,9 @@ cfg = ModelConfig(
     optimizers={
         "cms_opt": {"type": "deep_momentum", "lr": 3e-4, "params": {"beta": 0.9, "beta2": 0.999}}
     },
-    # FSRM features
+    # FSRM features (sphere norm + learnable eta only — inner loop removed)
     self_mod_output_l2_norm=True,
     self_mod_learnable_eta=True,
-    inner_loop_steps=2,
 )
 model = HOPEModel(cfg).cuda()
 print(f"  Model built: {sum(p.numel() for p in model.parameters()):,} params")

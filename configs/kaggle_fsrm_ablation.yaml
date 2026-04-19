@@ -21,12 +21,9 @@ model:
   block_variant: hope_selfmod
   self_mod_use_fla: false
 
-  # ── FSRM-inspired features (all three ON for this test) ──
-  self_mod_output_l2_norm: true      # Change 1: sphere normalization
-  self_mod_learnable_eta: true       # Change 2: learnable step size
-  inner_loop_steps: 2                # Change 3: inner refinement T=2
-  inner_loop_hidden_mult: 2          # RefineBlock MLP width
-  inner_loop_alpha_init: 0.1         # RefineBlock step-size init
+  # ── FSRM-inspired features (sphere norm + learnable eta) ──
+  self_mod_output_l2_norm: true      # sphere normalization
+  self_mod_learnable_eta: true       # learnable step size
 
   cms_hidden_multiplier: 4
   titan_level:

@@ -141,9 +141,6 @@ def build_model_from_cfg(model_cfg: DictConfig) -> torch.nn.Module:
         self_mod_fast_weight_dropout=float(model_cfg.get("self_mod_fast_weight_dropout", 0.0)),
         self_mod_output_l2_norm=bool(model_cfg.get("self_mod_output_l2_norm", False)),
         self_mod_learnable_eta=bool(model_cfg.get("self_mod_learnable_eta", False)),
-        inner_loop_steps=int(model_cfg.get("inner_loop_steps", 1)),
-        inner_loop_hidden_mult=int(model_cfg.get("inner_loop_hidden_mult", 2)),
-        inner_loop_alpha_init=float(model_cfg.get("inner_loop_alpha_init", 0.1)),
         cms_hidden_multiplier=int(model_cfg.get("cms_hidden_multiplier", 4)),
         transformer_mlp_hidden_multiplier=int(
             model_cfg.get("transformer_mlp_hidden_multiplier", 4)
