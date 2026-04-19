@@ -88,7 +88,9 @@ class RefineBlock(nn.Module):
             Refined tensor, same shape as *x*.
         """
         for _ in range(T):
-            x = x + self.alpha * self.net(self.norm(x))
+            # Cast to input dtype to avoid fp16/fp32 mismatch in RMSNorm
+            normed = self.norm(x.to(self.norm.weight.dtype)).to(x.dtype)
+            x = x + self.alpha * self.net(normed)
             if self.sphere_norm:
                 x = F.normalize(x, dim=-1, eps=self.eps)
         return x
