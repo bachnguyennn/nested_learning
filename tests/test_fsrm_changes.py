@@ -6,6 +6,7 @@ Run with:
 from __future__ import annotations
 
 import sys
+
 import torch
 
 
@@ -44,10 +45,9 @@ def test_sphere_norm_off_backward_compat() -> None:
 
 def test_defaults_all_false() -> None:
     """Verify all FSRM defaults are False/1 for backward compatibility."""
-    from nested_learning.titan.self_modifying import SelfModifyingTitansConfig
     from nested_learning.hope.block import HOPESelfModBlockConfig
-    from nested_learning.model import ModelConfig
     from nested_learning.levels import LevelSpec
+    from nested_learning.titan.self_modifying import SelfModifyingTitansConfig
 
     # SelfModifyingTitansConfig
     cfg = SelfModifyingTitansConfig(dim=64)
@@ -237,7 +237,7 @@ def test_block_t4_gradient_stability() -> None:
                 nan_grads.append(name)
     assert len(nan_grads) == 0, f"NaN/Inf gradients in: {nan_grads}"
     assert x.grad is not None and not torch.isnan(x.grad).any()
-    print(f"  ✓ T=4 gradient stability: all grads finite")
+    print("  ✓ T=4 gradient stability: all grads finite")
 
 
 def test_gradient_flow_all_features() -> None:

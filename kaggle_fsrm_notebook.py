@@ -1,3 +1,4 @@
+# ruff: noqa: E402, I001, E401, E741
 """
 Kaggle Notebook: FSRM-Inspired HOPE Ablation
 =============================================
@@ -23,7 +24,9 @@ Setup: Kaggle → New Notebook → GPU T4 or P100 → paste & run.
 # !pip install -q uv
 # !cd /kaggle/input/nested-learning && uv sync --frozen
 
-import subprocess, sys, os
+import os
+import subprocess
+import sys
 
 # ── Adjust this path to wherever your repo ends up ──
 REPO_DIR = "/kaggle/working/nested_learning"
@@ -78,7 +81,10 @@ subprocess.run([
 # ── Cell 5: Compare Loss Curves ──────────────────────────────────────────────
 
 import json
+import math
+
 import matplotlib.pyplot as plt
+
 
 def load_log(path):
     steps, losses = [], []
@@ -93,18 +99,19 @@ def load_log(path):
                 continue
     return steps, losses
 
+
 baseline_log = "/kaggle/working/logs/baseline_hope.json"
 fsrm_log = "/kaggle/working/logs/fsrm_ablation.json"
 
 fig, ax = plt.subplots(1, 1, figsize=(10, 5))
 
 if os.path.exists(baseline_log):
-    s, l = load_log(baseline_log)
-    ax.plot(s, l, label="Baseline (FSRM OFF)", alpha=0.8)
+    steps, losses = load_log(baseline_log)
+    ax.plot(steps, losses, label="Baseline (FSRM OFF)", alpha=0.8)
 
 if os.path.exists(fsrm_log):
-    s, l = load_log(fsrm_log)
-    ax.plot(s, l, label="FSRM (sphere + eta + T=2)", alpha=0.8)
+    steps, losses = load_log(fsrm_log)
+    ax.plot(steps, losses, label="FSRM (sphere + eta + T=2)", alpha=0.8)
 
 ax.set_xlabel("Step")
 ax.set_ylabel("Loss")
@@ -118,16 +125,16 @@ print("✓ Comparison plot saved to /kaggle/working/fsrm_comparison.png")
 
 # ── Cell 6: Quick NaN Check ──────────────────────────────────────────────────
 
-import math
 
 def check_nan(path, name):
     if not os.path.exists(path):
         print(f"  ⚠ {name}: log not found at {path}")
         return
-    steps, losses = load_log(path)
-    nan_count = sum(1 for l in losses if math.isnan(l) or math.isinf(l))
+    _, losses = load_log(path)
+    nan_count = sum(1 for loss in losses if math.isnan(loss) or math.isinf(loss))
     final = losses[-1] if losses else float("nan")
     print(f"  {name}: {len(losses)} steps, {nan_count} NaN/Inf, final_loss={final:.4f}")
+
 
 print("\nNaN/Inf Summary:")
 check_nan(baseline_log, "Baseline")

@@ -4,6 +4,7 @@ from typing import Dict, Sequence
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from .levels import LevelSpec, ensure_level_specs
 
@@ -70,8 +71,8 @@ class CMSSlotBlock(nn.Module):
         
         q = self.q_proj(x)
         
-        # QK-Norm: Industry standard to prevent FP16 representation collapse (inf - inf = nan)
-        # Binds the entire dot-product strictly between [-1, 1], guaranteeing mathematical stability.
+        # QK-Norm: prevents FP16 representation collapse (inf - inf = nan).
+        # Binds the dot-product strictly to [-1, 1] for mathematical stability.
         q_norm = F.normalize(q, p=2, dim=-1)
         k_norm = F.normalize(self.memory_k, p=2, dim=-1)
         
